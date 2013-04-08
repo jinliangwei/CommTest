@@ -11,3 +11,7 @@ To change the size of message, change MSGSIZE macro in scheduler.hpp.
 
 Relevant functions: sched_server(), sched_client() and other low level
 functions that encapsulate and decapsulate packets.
+
+To run a test 
+1. make a machine file 
+2. python run.py
