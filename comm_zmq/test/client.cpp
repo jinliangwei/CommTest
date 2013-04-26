@@ -8,10 +8,6 @@ namespace boost_po = boost::program_options;
 
 using namespace commtest;
 
-/*
- * A simple TCP echo server
- */
-
 int main(int argc, char *argv[]){
   boost_po::options_description options("Allowed options");
   std::string sip;
