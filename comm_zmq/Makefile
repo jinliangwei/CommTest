@@ -16,3 +16,5 @@ client: $(CPPSRC) $(HPPSRC) test/server.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/client.cpp $(LIBS) -o bin/client
 
+clean:
+	rm -rf bin

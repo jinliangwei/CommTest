@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <queue>
 #include <semaphore.h>
+#include <boost/unordered_map.hpp>
 
 #define DBG 0  // print when debugging
 #define ERR 1  // print when error should be exposed
@@ -15,10 +16,14 @@
 #define MSGQ_ENDP "inproc://msgq"
 #define TASKQ_ENDP "inproc://taskq"
 #define SHUTDOWN_ENDP "inproc://shutdown"
+#define CONN_ENDP "inproc://conn"
 
 #ifndef COMM_HANDLER_LOGLEVEL
 #define COMM_HANDLER_LOGLEVEL 0
 #endif
+
+#define IDE2I(x) (x << 4 | 0x1)
+#define IDI2E(x) (x >> 4)
 
 #define LOG(LEVEL, OUT, FMT, ARGS...) if(LEVEL >= COMM_HANDLER_LOGLEVEL) fprintf(OUT, "[%s][%s][ln:%d]  "FMT, __FILE__, __FUNCTION__, __LINE__, ##ARGS)
 
@@ -80,23 +85,28 @@ namespace commtest{
       port(_port){}
   };
   
+  //TODO: add two callbacks 1) connection loss 2) error state
+  //TODO: add funciton to clear error state
+  
   class comm_handler {
   private:
     boost::scoped_ptr<zmq::context_t> zmq_ctx;
     boost::scoped_ptr<zmq::socket_t> msgq; // a pull socket; application threads push to a corresponding socket
     boost::scoped_ptr<zmq::socket_t> taskq; // a push socket; application threads pull from a corresponding socket
+    boost::scoped_ptr<zmq::socket_t> conn_sock;
 
     //shared among worker threads, should be protected by mutex
     boost::scoped_ptr<zmq::socket_t> msgpush;
     boost::scoped_ptr<zmq::socket_t> taskpull;
+    boost::scoped_ptr<zmq::socket_t> connpush;
 
     boost::scoped_ptr<zmq::socket_t> router_sock;
     boost::scoped_ptr<zmq::socket_t> monitor_sock;
 
     boost::scoped_ptr<zmq::socket_t> shutdown_sock; // a pull socket; if read anything, then shut down
     
-    pthread_mutex_t msgq_mtx;
-    pthread_mutex_t taskq_mtx;
+    //pthread_mutex_t msgq_mtx;
+    //pthread_mutex_t taskq_mtx;
     pthread_mutex_t sync_mtx;
     pthread_t pthr;
     cliid_t id;
@@ -104,59 +114,68 @@ namespace commtest{
     std::string port;
     int errcode; // 0 is no error
     pcqueue<cliid_t> clientq;
+    boost::unordered_map<cliid_t, bool> clientmap;
     bool accept_conns;
     static void *start_handler(void *_comm);
+    
   public:
     
     comm_handler(config_param_t &cparam):
       zmq_ctx(new zmq::context_t(1)),
       msgq(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
       taskq(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PUSH)),
+      conn_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
       msgpush(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PUSH)),
       taskpull(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
+      connpush(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PUSH)),
       router_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_ROUTER)),
       monitor_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PAIR)),
       shutdown_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
-      id(cparam.id),
+      id(IDE2I(cparam.id)),
       ip(cparam.ip),
       port(cparam.port),
       accept_conns(cparam.accept_conns)
     {
-      pthread_mutex_init(&msgq_mtx, NULL);
-      pthread_mutex_init(&taskq_mtx, NULL);
+      //pthread_mutex_init(&msgq_mtx, NULL);
+      //pthread_mutex_init(&taskq_mtx, NULL);
       pthread_mutex_init(&sync_mtx, NULL);
-      
       try{	
 	msgq->bind(MSGQ_ENDP);
 	msgpush->connect(MSGQ_ENDP);
 	taskq->bind(TASKQ_ENDP);      
 	taskpull->connect(TASKQ_ENDP);
+	conn_sock->bind(CONN_ENDP);
+	connpush->connect(CONN_ENDP);
 	shutdown_sock->bind(SHUTDOWN_ENDP);
+
       }catch(zmq::error_t e){
 	LOG(DBG, stderr, "Failed to connect to inproc socket: %s\n", e.what());
 	throw std::bad_alloc();
       }
       LOG(DBG, stderr, "inproc socket connection established\n");
       pthread_mutex_lock(&sync_mtx);
-    
+      errcode = 0;
       int ret = pthread_create(&pthr, NULL, start_handler, this);
       if(ret != 0) throw std::bad_alloc();
       pthread_mutex_lock(&sync_mtx); //cannot return until comm thread starts running
-      errcode = 0;
+      pthread_mutex_unlock(&sync_mtx);
+      if(errcode) throw std::bad_alloc();
     }
     
     ~comm_handler(){
-      pthread_mutex_destroy(&msgq_mtx);
-      pthread_mutex_destroy(&taskq_mtx);
+      //pthread_mutex_destroy(&msgq_mtx);
+      //pthread_mutex_destroy(&taskq_mtx);
+      pthread_mutex_destroy(&sync_mtx);
     }
 
     
-    cliid_t wait_for_connection();
-    int connect_to(std::string ip, std::string port);
+    cliid_t get_one_connection();
+    int connect_to(std::string destip, std::string destport, cliid_t destid);
     
     int broadcast(uint8_t *data, size_t len);
+    //not thread-safe
     int send(cliid_t cid, uint8_t *data, size_t len); //non-blocking send
-    int recv(cliid_t *cid, uint8_t **data); //blocking recv; client needs to clear data
+    int recv(cliid_t &cid, uint8_t **data); //blocking recv; client needs to clear data
     int shutdown();
   };
 

@@ -1,23 +1,30 @@
 #include "comm_handler.hpp"
 #include <assert.h>
 #include "zmq-util.hpp"
+#include <unistd.h>
+
+#define COMM_HANDLER_INIT "hello"
 
 namespace commtest {
 
-  cliid_t comm_handler::wait_for_connection(){
+  cliid_t comm_handler::get_one_connection(){
     if(errcode) return -1;
     return clientq.pop();
   }
 
-  int comm_handler::connect_to(std::string destip, std::string destport){
-    try{
-      router_sock->connect((std::string("tcp://") + destip + std::string(":") + destport).c_str());
-    }catch(zmq::error_t e){
+  int comm_handler::connect_to(std::string destip, std::string destport, cliid_t destid){
+    
+    std::string connstr = std::string("tcp://") + destip + std::string(":") + destport;
+    pthread_mutex_lock(&sync_mtx);
+    //TODO replace with send_msgs
+    int ret = send_msg(connpush.get(), IDE2I(destid), (uint8_t *) connstr.c_str(), connstr.size(), 0);
+    if(ret <= 0){
+      pthread_mutex_unlock(&sync_mtx);
       return -1;
     }
-    send_msg(router_sock.get(), id, (uint8_t *) "hello", 6, 0);
-    send_msg(router_sock.get(), id, (uint8_t *) "hello", 6, 0);
-
+    pthread_mutex_lock(&sync_mtx); //cannot return until comm thread starts running
+    pthread_mutex_unlock(&sync_mtx);
+    if(errcode) return -1;
     return 0;
   }
 
@@ -29,18 +36,17 @@ namespace commtest {
 
   int comm_handler::send(cliid_t cid, uint8_t *data, size_t len){
     if(errcode) return -1;
-    pthread_mutex_lock(&msgq_mtx);
-    int ret = send_msg(msgq.get(), cid, data, len, 0);
-    pthread_mutex_unlock(&msgq_mtx);
+    int ret = send_msg(msgpush.get(), IDE2I(cid), data, len, 0);
     if(errcode) return -1;
     return ret;
   }
 
-  int comm_handler::recv(cliid_t *cid, uint8_t **data){
+  int comm_handler::recv(cliid_t &cid, uint8_t **data){
     if(errcode) return -1;
-    pthread_mutex_lock(&taskq_mtx);
-    int size = recv_msg(taskq.get(), data, cid);
-    pthread_mutex_unlock(&taskq_mtx);
+    int incid;
+    LOG(DBG, stderr, "recv task!!!!!\n");
+    int size = recv_msg(taskpull.get(), data, incid);
+    cid = IDI2E(incid);
     if(errcode) return -1;
     return size;
   }
@@ -50,15 +56,18 @@ namespace commtest {
     comm_handler *comm = (comm_handler *) _comm;
     
     try{
+      int sock_mandatory = 1;
       comm->router_sock->setsockopt(ZMQ_IDENTITY, &(comm->id), sizeof(cliid_t));
+      comm->router_sock->setsockopt(ZMQ_ROUTER_MANDATORY, &(sock_mandatory), sizeof(int));
+      LOG(DBG, stderr, "set my router sock identity to 0x%x\n", comm->id);
     }catch(zmq::error_t e){
       LOG(DBG, stderr, "router_sock->setsockopt failed\n");
       pthread_mutex_unlock(&(comm->sync_mtx));
       return NULL;
     }
-    
+
     //add more events to monitor if needed
-    int ret = zmq_socket_monitor(*(comm->router_sock), "inproc://monitor.router_sock", ZMQ_EVENT_ACCEPTED | ZMQ_EVENT_DISCONNECTED);
+    int ret = zmq_socket_monitor(*(comm->router_sock), "inproc://monitor.router_sock", ZMQ_EVENT_CONNECTED | ZMQ_EVENT_ACCEPTED | ZMQ_EVENT_DISCONNECTED);
     if(ret < 0){
       LOG(DBG, stderr, "monitor router_sock failed\n");
       comm->errcode = 1;
@@ -79,8 +88,8 @@ namespace commtest {
       LOG(DBG, stderr, "router_sock tries to bind to %s\n", conn_str.c_str());	
       try{
 	comm->router_sock->bind(conn_str.c_str());
-      }catch(zmq::error_t){
-	LOG(DBG, stderr, "router_sock binds to %s failed\n", conn_str.c_str());
+      }catch(zmq::error_t e){
+	LOG(DBG, stderr, "router_sock binds to %s failed: %s\n", conn_str.c_str(), e.what());
 	pthread_mutex_unlock(&(comm->sync_mtx));
 	return NULL;
       }
@@ -88,7 +97,7 @@ namespace commtest {
 
     pthread_mutex_unlock(&(comm->sync_mtx));
 
-    zmq::pollitem_t pollitems[4];
+    zmq::pollitem_t pollitems[5];
     pollitems[0].socket = *(comm->msgq);
     pollitems[0].events = ZMQ_POLLIN;
     pollitems[1].socket = *(comm->router_sock);
@@ -97,11 +106,13 @@ namespace commtest {
     pollitems[2].events = ZMQ_POLLIN;
     pollitems[3].socket = *(comm->monitor_sock);
     pollitems[3].events = ZMQ_POLLIN;
+    pollitems[4].socket = *(comm->conn_sock);
+    pollitems[4].events = ZMQ_POLLIN;
 
     while(true){
       LOG(DBG, stderr, "comm_handler starts listening...\n");
       try { 
-	int num_poll = zmq::poll(pollitems, 4);
+	int num_poll = zmq::poll(pollitems, 5);
 	LOG(DBG, stderr, "num_poll = %d\n", num_poll);
       } catch (...) {
 	comm->errcode = 1;
@@ -115,7 +126,7 @@ namespace commtest {
 	int len;
 	cliid_t cid;
 
-	len = recv_msg(comm->msgq.get(), &data, &cid);
+	len = recv_msg(comm->msgq.get(), &data, cid);
 	if(len < 0){
 	  comm->errcode = 1;
 	  return NULL;
@@ -124,7 +135,6 @@ namespace commtest {
 	
 	send_msg(comm->router_sock.get(), cid, data, len, 0);
 	delete[] data;
-	continue;
       }
       
       if(pollitems[1].revents){
@@ -133,23 +143,33 @@ namespace commtest {
 	int len;
 	cliid_t cid;
 	
-	len = recv_msg(comm->router_sock.get(), &data, &cid);
+	len = recv_msg(comm->router_sock.get(), &data, cid);
 	if(len < 0){
 	  comm->errcode = 1;
 	  return NULL;
 	}
-
-	LOG(DBG, stderr, "got task from router socket, len = %d\n", len);
-	send_msg(comm->taskq.get(), data, len, 0); 
 	
+	LOG(DBG, stderr, "got task from router socket, len = %d, data = %s\n", len, (char *) data);
+
+	if(comm->clientmap.count(cid) == 0){
+	  LOG(DBG, stderr, "this is a new client\n");
+	  comm->clientmap[cid] = true;
+	  comm->clientq.push(IDI2E(cid));
+	}else if(comm->clientmap[cid] == false){
+	  //TODO: no connection loss detection
+	  LOG(DBG, stderr, "this is a new client\n");
+	  comm->clientmap[cid] = true;
+	  comm->clientq.push(IDI2E(cid));
+	}else{
+	  LOG(DBG, stderr, "send task to taskq, data = %d\n", (cliid_t) *data);
+	  send_msg(comm->taskq.get(), cid, data, len, 0);
+	}
 	delete[] data;
-	continue;
       }
       
       if(pollitems[3].revents){
 	zmq_event_t *event;
 	int len;
-	cliid_t cid;
 	len = recv_msg(comm->monitor_sock.get(), (uint8_t **) &event);
 	
 	if (len < 0){
@@ -158,24 +178,50 @@ namespace commtest {
 	}
 	assert(len == sizeof(zmq_event_t));
 	switch (event->event){
+	case ZMQ_EVENT_CONNECTED:
+	  LOG(DBG, stderr, "established connection.\n");
+	  break;
 	case ZMQ_EVENT_ACCEPTED:
-	  //memcpy(&cid, event->data.connected.addr, sizeof(cliid_t));
-	  LOG(DBG, stderr, "accepted connection fd %d.\n", event->data.accepted.fd);
-	  LOG(DBG, stderr, "accepted connection addr %s.\n", event->data.accepted.addr);
-	  comm->clientq.push(cid);
+	  LOG(DBG, stderr, "accepted connection.\n");
 	  break;
 	case ZMQ_EVENT_DISCONNECTED:
-	  memcpy(&cid, event->data.connected.addr, sizeof(cliid_t));
-	  LOG(DBG, stderr, "client disconnected %d\n", cid);
+	  LOG(DBG, stderr, "client disconnected\n");
 	  break;
 	default:
 	  LOG(DBG, stderr, "unexpected event : %d\n", event->event);
 	  comm->errcode = 1;
 	  return NULL;
 	}
-	continue;
       }
-      
+
+      if(pollitems[4].revents){
+
+	cliid_t destid;
+	char *connstr_c;
+	int ret = recv_msg(comm->conn_sock.get(), (uint8_t **) &connstr_c, destid);
+	if(ret < 0){
+	  comm->errcode = 1;
+	  pthread_mutex_unlock(&(comm->sync_mtx));
+	  return NULL;
+	}
+
+	try{
+	  comm->router_sock->connect(connstr_c);
+	}catch(zmq::error_t e){
+	  comm->errcode = 1;
+	  pthread_mutex_unlock(&(comm->sync_mtx));
+	  return NULL;
+	}
+	delete connstr_c;
+
+	comm->clientmap[destid] = true;
+	ret = -1;
+	while(ret < 0){
+	  ret = send_msg(comm->router_sock.get(), destid, (uint8_t *) COMM_HANDLER_INIT, strlen(COMM_HANDLER_INIT) + 1, 0);
+	}
+	pthread_mutex_unlock(&(comm->sync_mtx));
+      }
+
       if(pollitems[2].revents){
 	LOG(DBG, stderr, "thread shuting down!\n");
 	return NULL;

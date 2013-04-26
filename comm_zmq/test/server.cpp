@@ -21,7 +21,7 @@ int main(int argc, char *argv[]){
   cliid_t *clients;
  
   options.add_options()
-    ("id", boost_po::value<cliid_t>(&id)->default_value(1), "node id")
+    ("id", boost_po::value<cliid_t>(&id)->default_value(0), "node id")
     ("ip", boost_po::value<std::string>(&ip)->default_value("127.0.0.1"), "ip address")
     ("port", boost_po::value<std::string>(&port)->default_value("9999"), "port number")
     ("ncli", boost_po::value<int>(&num_clients)->default_value(1), "number of clients expected");
@@ -53,7 +53,7 @@ int main(int argc, char *argv[]){
   int i;
   for(i = 0; i < num_clients; i++){
     cliid_t cid;
-    cid = comm->wait_for_connection();
+    cid = comm->get_one_connection();
     if(cid < 0){
       LOG(NOR, stderr, "wait for connection failed\n");
       return -1;
@@ -61,24 +61,30 @@ int main(int argc, char *argv[]){
     LOG(NOR, stderr, "received connection from %d\n", cid);
     clients[i] = cid;
   }
-  while(1);
+  
+
   for(i = 0; i < num_clients; ++i){
-    int suc = comm->send(clients[i], (uint8_t *) &clients[i], sizeof(cliid_t));
+    int suc = -1;
+    suc = comm->send(clients[i], (uint8_t *) (clients + i), sizeof(cliid_t));
+    
+    LOG(NOR, stderr, "send task to %d\n", clients[i]);
     assert(suc == sizeof(cliid_t));
   }
   
   for(i = 0; i < num_clients; ++i){
     uint8_t *data; //I'm expecting a string
     cliid_t cid;
-    int suc = comm->recv(&cid, &data);
+    int suc = comm->recv(cid, &data);
     assert(suc > 0);
     printf("Received msg : %s from %d\n", (char *) data, cid);
     delete[] data;
   }
 
+  LOG(NOR, stdout, "TEST NEARLY PASSED!! SHUTTING DOWN COMMTHREAD!!\n");
   int suc = comm->shutdown();
   if(suc < 0) LOG(NOR, stderr, "failed to shut down comm handler\n");
 
   delete comm;
+  LOG(NOR, stdout, "TEST PASSED!! EXITING!!\n");
   return 0;
 }
