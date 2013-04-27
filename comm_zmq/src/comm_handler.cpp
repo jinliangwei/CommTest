@@ -8,6 +8,7 @@
 namespace commtest {
 
   cliid_t comm_handler::get_one_connection(){
+    if(!accept_conns) return -1;
     if(errcode) return -1;
     return clientq.pop();
   }
@@ -195,7 +196,7 @@ namespace commtest {
       }
 
       if(pollitems[4].revents){
-
+	
 	cliid_t destid;
 	char *connstr_c;
 	int ret = recv_msg(comm->conn_sock.get(), (uint8_t **) &connstr_c, destid);
@@ -208,6 +209,7 @@ namespace commtest {
 	try{
 	  comm->router_sock->connect(connstr_c);
 	}catch(zmq::error_t e){
+	  LOG(DBG, stderr, "Connect failed : %s\n", e.what());
 	  comm->errcode = 1;
 	  pthread_mutex_unlock(&(comm->sync_mtx));
 	  return NULL;

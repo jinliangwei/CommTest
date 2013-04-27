@@ -13,6 +13,7 @@
 #define DBG 0  // print when debugging
 #define ERR 1  // print when error should be exposed
 #define NOR 2  // always print
+
 #define MSGQ_ENDP "inproc://msgq"
 #define TASKQ_ENDP "inproc://taskq"
 #define SHUTDOWN_ENDP "inproc://shutdown"
