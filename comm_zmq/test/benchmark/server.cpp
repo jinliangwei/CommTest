@@ -1,13 +1,22 @@
-
+#include <boost/shared_array.hpp>
 #include <boost/program_options.hpp>
 namespace boost_po = boost::program_options;
 
 #include <string>
 #include <comm_handler.hpp>
 #include <stdio.h>
+#include <sys/time.h>
+#include <iostream>
+
+#define MSG_10K (1024*10)
 
 using namespace commtest;
 
+typedef struct timeval timeval_t;
+
+int64_t get_micro_second(timeval_t tv){
+  return (int64_t) tv.tv_sec*1000000 + tv.tv_usec;
+}
 
 int main(int argc, char *argv[]){
   boost_po::options_description options("Allowed options");
@@ -16,12 +25,14 @@ int main(int argc, char *argv[]){
   cliid_t id; 
   int num_clients;
   cliid_t *clients;
+  int msgsize;
  
   options.add_options()
     ("id", boost_po::value<cliid_t>(&id)->default_value(0), "node id")
     ("ip", boost_po::value<std::string>(&ip)->default_value("127.0.0.1"), "ip address")
     ("port", boost_po::value<std::string>(&port)->default_value("9999"), "port number")
-    ("ncli", boost_po::value<int>(&num_clients)->default_value(1), "number of clients expected");
+    ("ncli", boost_po::value<int>(&num_clients)->default_value(1), "number of clients expected")
+    ("msgsize", boost_po::value<int>(&msgsize)->default_value(MSG_10K), "task message size");
   
   boost_po::variables_map options_map;
   boost_po::store(boost_po::parse_command_line(argc, argv, options), options_map);
@@ -59,23 +70,35 @@ int main(int argc, char *argv[]){
     clients[i] = cid;
   }
   
+  LOG(NOR, stderr, "received expected number of clients, send tasks out!\n");
 
+  timeval_t t;
+  int64_t sendall_micros;
+
+  uint8_t *data = new uint8_t[msgsize]; 
+
+  gettimeofday(&t, NULL);
+  sendall_micros = get_micro_second(t);
   for(i = 0; i < num_clients; ++i){
     int suc = -1;
-    suc = comm->send(clients[i], (uint8_t *) (clients + i), sizeof(cliid_t));
+    suc = comm->send(clients[i], data, msgsize);
     
     LOG(NOR, stderr, "send task to %d\n", clients[i]);
-    assert(suc == sizeof(cliid_t));
+    assert(suc == msgsize);
   }
-  
+  delete[] data;
+
   for(i = 0; i < num_clients; ++i){
-    uint8_t *data; //I'm expecting a string
+    boost::shared_array<uint8_t> data; //I'm expecting a string
     cliid_t cid;
-    int suc = comm->recv(cid, &data);
+    int suc = comm->recv(cid, data);
     assert(suc > 0);
-    printf("Received msg : %s from %d\n", (char *) data, cid);
-    delete[] data;
+    printf("Received msg : %s from %d\n", (char *) data.get(), cid);
   }
+  gettimeofday(&t, NULL);
+  sendall_micros = get_micro_second(t) - sendall_micros;
+  
+  std::cout << "takes " << sendall_micros << " microsec for round trip" << std::endl;
 
   LOG(NOR, stdout, "TEST NEARLY PASSED!! SHUTTING DOWN COMMTHREAD!!\n");
   int suc = comm->shutdown();

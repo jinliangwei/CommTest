@@ -7,14 +7,19 @@ LIBS = -lboost_program_options -pthread -lzmq
 CPPSRC = src/*.cpp
 HPPSRC = src/*.hpp
 
-server: $(CPPSRC) $(HPPSRC) test/server.cpp
-	mkdir -p bin
-	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/server.cpp $(LIBS) -o bin/server
+basic: server client
+chain: chain-server chain-client chain-serclient
+benchmark:benserver benclient
 
 
-client: $(CPPSRC) $(HPPSRC) test/server.cpp
+server: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
 	mkdir -p bin
-	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/client.cpp $(LIBS) -o bin/client
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/basic/server.cpp $(LIBS) -o bin/server
+
+
+client: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/basic/client.cpp $(LIBS) -o bin/client
 
 chain-server: $(CPPSRC) $(HPPSRC) test/chain/server.cpp
 	mkdir -p bin
@@ -31,6 +36,14 @@ chain-serclient: $(CPPSRC) $(HPPSRC) test/chain/server_client.cpp
 	mkdir -p bin/chain
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/chain/server_client.cpp $(LIBS) -o bin/chain/serclient
 
+benserver: $(CPPSRC) $(HPPSRC) test/benchmark/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/benchmark/server.cpp $(LIBS) -o bin/benserver
+
+
+benclient: $(CPPSRC) $(HPPSRC) test/benchmark/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/benchmark/client.cpp $(LIBS) -o bin/benclient
 
 clean:
 	rm -rf bin

@@ -1,6 +1,6 @@
 #include "comm_handler.hpp"
 #include <assert.h>
-#include "zmq-util.hpp"
+#include "zmq_util.hpp"
 #include <unistd.h>
 
 #define COMM_HANDLER_INIT "hello"
@@ -42,7 +42,7 @@ namespace commtest {
     return ret;
   }
 
-  int comm_handler::recv(cliid_t &cid, uint8_t **data){
+  int comm_handler::recv(cliid_t &cid, boost::shared_array<uint8_t> &data){
     if(errcode) return -1;
     int incid;
     LOG(DBG, stderr, "recv task!!!!!\n");
@@ -123,34 +123,33 @@ namespace commtest {
 
       if(pollitems[0].revents){
 	LOG(DBG, stderr, "message on msgq\n");
-	uint8_t *data;
+	boost::shared_array<uint8_t> data;
 	int len;
 	cliid_t cid;
 
-	len = recv_msg(comm->msgq.get(), &data, cid);
+	len = recv_msg(comm->msgq.get(), data, cid);
 	if(len < 0){
 	  comm->errcode = 1;
 	  return NULL;
 	}
 	LOG(DBG, stderr, "got message from msg queue, len = %d\n", len);
 	
-	send_msg(comm->router_sock.get(), cid, data, len, 0);
-	delete[] data;
+	send_msg(comm->router_sock.get(), cid, data.get(), len, 0);
       }
       
       if(pollitems[1].revents){
 	LOG(DBG, stderr, "task received on router socket!\n");
-	uint8_t *data;
+	boost::shared_array<uint8_t> data;
 	int len;
 	cliid_t cid;
 	
-	len = recv_msg(comm->router_sock.get(), &data, cid);
+	len = recv_msg(comm->router_sock.get(), data, cid);
 	if(len < 0){
 	  comm->errcode = 1;
 	  return NULL;
 	}
 	
-	LOG(DBG, stderr, "got task from router socket, len = %d, data = %s\n", len, (char *) data);
+	LOG(DBG, stderr, "got task from router socket, len = %d\n", len);
 
 	if(comm->clientmap.count(cid) == 0){
 	  LOG(DBG, stderr, "this is a new client\n");
@@ -158,26 +157,28 @@ namespace commtest {
 	  comm->clientq.push(IDI2E(cid));
 	}else if(comm->clientmap[cid] == false){
 	  //TODO: no connection loss detection
-	  LOG(DBG, stderr, "this is a new client\n");
+	  LOG(DBG, stderr, "this is a reconnected client\n");
 	  comm->clientmap[cid] = true;
 	  comm->clientq.push(IDI2E(cid));
 	}else{
-	  LOG(DBG, stderr, "send task to taskq, data = %d\n", (cliid_t) *data);
-	  send_msg(comm->taskq.get(), cid, data, len, 0);
+	  LOG(DBG, stderr, "send task to taskq\n");
+	  send_msg(comm->taskq.get(), cid, data.get(), len, 0);
 	}
-	delete[] data;
       }
       
       if(pollitems[3].revents){
 	zmq_event_t *event;
+	boost::shared_array<uint8_t> data;
 	int len;
-	len = recv_msg(comm->monitor_sock.get(), (uint8_t **) &event);
+	len = recv_msg(comm->monitor_sock.get(), data);
 	
 	if (len < 0){
 	  comm->errcode = 1;
 	  return NULL;
 	}
 	assert(len == sizeof(zmq_event_t));
+	event = (zmq_event_t *) data.get();
+
 	switch (event->event){
 	case ZMQ_EVENT_CONNECTED:
 	  LOG(DBG, stderr, "established connection.\n");
@@ -199,13 +200,15 @@ namespace commtest {
 	
 	cliid_t destid;
 	char *connstr_c;
-	int ret = recv_msg(comm->conn_sock.get(), (uint8_t **) &connstr_c, destid);
+	boost::shared_array<uint8_t> data;
+	int ret = recv_msg(comm->conn_sock.get(), data, destid);
 	if(ret < 0){
 	  comm->errcode = 1;
 	  pthread_mutex_unlock(&(comm->sync_mtx));
 	  return NULL;
 	}
-
+	
+	connstr_c = (char *) data.get();
 	try{
 	  comm->router_sock->connect(connstr_c);
 	}catch(zmq::error_t e){
@@ -214,7 +217,6 @@ namespace commtest {
 	  pthread_mutex_unlock(&(comm->sync_mtx));
 	  return NULL;
 	}
-	delete connstr_c;
 
 	comm->clientmap[destid] = true;
 	ret = -1;

@@ -9,6 +9,7 @@
 #include <queue>
 #include <semaphore.h>
 #include <boost/unordered_map.hpp>
+#include <boost/shared_array.hpp>
 
 #define DBG 0  // print when debugging
 #define ERR 1  // print when error should be exposed
@@ -55,6 +56,7 @@ namespace commtest{
       q.push(t);
       pthread_mutex_unlock(&mutex);
       sem_post(&sem);
+ 
     }
 
     T pop(){
@@ -176,7 +178,7 @@ namespace commtest{
     int broadcast(uint8_t *data, size_t len);
     //not thread-safe
     int send(cliid_t cid, uint8_t *data, size_t len); //non-blocking send
-    int recv(cliid_t &cid, uint8_t **data); //blocking recv; client needs to clear data
+    int recv(cliid_t &cid, boost::shared_array<uint8_t> &data); //blocking recv
     int shutdown();
   };
 

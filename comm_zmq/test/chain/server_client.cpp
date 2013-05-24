@@ -1,4 +1,4 @@
-
+#include <boost/shared_array.hpp>
 #include <boost/program_options.hpp>
 namespace boost_po = boost::program_options;
 
@@ -69,14 +69,13 @@ int main(int argc, char *argv[]){
   int suc = comm->connect_to(sip, sport, sid);
   if(suc < 0) LOG(NOR, stderr, "failed to connect to server\n");
 
-  uint8_t *data;
+  boost::shared_array<uint8_t> data;
   cliid_t rid;
 
-  suc = comm->recv(rid, &data);
+  suc = comm->recv(rid, data);
   assert(suc > 0 && rid == sid);
 
-  printf("Received msg : %d from %d\n", (cliid_t) *data, sid);
-  delete[] data;
+  printf("Received msg : %d from %d\n", *((cliid_t *) data.get()), sid);
 
   // get another client
   // if this part is removed, we can make a 
@@ -100,12 +99,11 @@ int main(int argc, char *argv[]){
   }
   
   for(i = 0; i < num_clients; ++i){
-    uint8_t *data; //I'm expecting a string
+    boost::shared_array<uint8_t> data; //I'm expecting a string
     cliid_t cid;
-    suc = comm->recv(cid, &data);
+    suc = comm->recv(cid, data);
     assert(suc > 0);
-    printf("Received msg : %s from %d\n", (char *) data, cid);
-    delete[] data;
+    printf("Received msg : %s from %d\n", (char *) data.get(), cid);
   }
 
   suc = comm->send(sid, (uint8_t *) "hello", 6);

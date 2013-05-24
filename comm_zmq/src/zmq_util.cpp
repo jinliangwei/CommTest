@@ -1,10 +1,10 @@
 
-#include "zmq-util.hpp"
+#include "zmq_util.hpp"
 
 /*
  * return number of bytes received, negative if error 
  */
-int recv_msg(zmq::socket_t *sock, uint8_t **data)
+int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data)
 {
     zmq::message_t msgt;
     int nbytes;
@@ -18,21 +18,23 @@ int recv_msg(zmq::socket_t *sock, uint8_t **data)
     if(nbytes == 0) return 0;
 
     size_t len = msgt.size();    
+    uint8_t *dataptr;
     try{
-      *data = new uint8_t[len];
+      dataptr = new uint8_t[len];
     }catch(std::bad_alloc e){
       //LOG(DBG, stderr, "can not allocate memory!\n");
       return -1;
     }
     
-    memcpy(*data, msgt.data(), len);
+    memcpy(dataptr, msgt.data(), len);
+    data.reset(dataptr);
     return len;
 }
 
 /*
  * return number of bytes received, negative if error
  */
-int recv_msg(zmq::socket_t *sock, uint8_t **data, commtest::cliid_t &cid)
+int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid)
 {
     zmq::message_t msgt;
     try{

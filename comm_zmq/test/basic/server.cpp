@@ -1,6 +1,5 @@
-
-#include <boost/program_options.hpp>
 #include <boost/shared_array.hpp>
+#include <boost/program_options.hpp>
 namespace boost_po = boost::program_options;
 
 #include <string>
@@ -60,6 +59,7 @@ int main(int argc, char *argv[]){
     clients[i] = cid;
   }
   
+  LOG(NOR, stderr, "received expected number of clients, send tasks out!\n");
 
   for(i = 0; i < num_clients; ++i){
     int suc = -1;

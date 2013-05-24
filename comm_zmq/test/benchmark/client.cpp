@@ -16,10 +16,10 @@ int main(int argc, char *argv[]){
   cliid_t sid;
 
   options.add_options()
-    ("id", boost_po::value<cliid_t>(&id)->default_value(2), "node id")
-    ("sid", boost_po::value<cliid_t>(&sid)->default_value(1), "scheduler id")
+    ("id", boost_po::value<cliid_t>(&id)->default_value(1), "node id")
+    ("sid", boost_po::value<cliid_t>(&sid)->default_value(0), "scheduler id")
     ("sip", boost_po::value<std::string>(&sip)->default_value("127.0.0.1"), "ip address")
-    ("sport", boost_po::value<std::string>(&sport)->default_value("9998"), "port number");
+    ("sport", boost_po::value<std::string>(&sport)->default_value("9999"), "port number");
     
   
   boost_po::variables_map options_map;
