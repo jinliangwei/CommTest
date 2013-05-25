@@ -8,18 +8,18 @@
 /*
  * return number of bytes received, negative if error 
  */
-int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data);
+int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data);
 
 /*
  * return number of bytes received, negative if error
  */
-int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid);
+int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid);
 
 /*
  * return number of bytes sent, negative if error
  */
-int send_msg(zmq::socket_t *sock, uint8_t *data, size_t len, int flag);
+int send_msg(zmq::socket_t &sock, uint8_t *data, size_t len, int flag);
 
-int send_msg(zmq::socket_t *sock, commtest::cliid_t cid, uint8_t *data, size_t len, int flag);
+int send_msg(zmq::socket_t &sock, commtest::cliid_t cid, uint8_t *data, size_t len, int flag);
 
 #endif

@@ -10,6 +10,7 @@
 #include <semaphore.h>
 #include <boost/unordered_map.hpp>
 #include <boost/shared_array.hpp>
+#include <boost/thread/tss.hpp>
 
 #define DBG 0  // print when debugging
 #define ERR 1  // print when error should be exposed
@@ -93,23 +94,21 @@ namespace commtest{
   
   class comm_handler {
   private:
-    boost::scoped_ptr<zmq::context_t> zmq_ctx;
-    boost::scoped_ptr<zmq::socket_t> msgq; // a pull socket; application threads push to a corresponding socket
-    boost::scoped_ptr<zmq::socket_t> taskq; // a push socket; application threads pull from a corresponding socket
-    boost::scoped_ptr<zmq::socket_t> conn_sock;
+    zmq::context_t zmq_ctx;
+    // a pull socket; application threads push to a corresponding socket
+    zmq::socket_t msgq;
+    // a push socket; application threads pull from a corresponding socket
+    zmq::socket_t taskq;
+    zmq::socket_t conn_sock;
+    zmq::socket_t shutdown_sock; // a pull socket; if read anything, then shut down
+    zmq::socket_t router_sock;
+    zmq::socket_t monitor_sock;
 
     //shared among worker threads, should be protected by mutex
-    boost::scoped_ptr<zmq::socket_t> msgpush;
-    boost::scoped_ptr<zmq::socket_t> taskpull;
-    boost::scoped_ptr<zmq::socket_t> connpush;
+    boost::thread_specific_ptr<zmq::socket_t> msgpush;
+    boost::thread_specific_ptr<zmq::socket_t> taskpull;
+    boost::thread_specific_ptr<zmq::socket_t> connpush;    
 
-    boost::scoped_ptr<zmq::socket_t> router_sock;
-    boost::scoped_ptr<zmq::socket_t> monitor_sock;
-
-    boost::scoped_ptr<zmq::socket_t> shutdown_sock; // a pull socket; if read anything, then shut down
-    
-    //pthread_mutex_t msgq_mtx;
-    //pthread_mutex_t taskq_mtx;
     pthread_mutex_t sync_mtx;
     pthread_t pthr;
     cliid_t id;
@@ -124,38 +123,30 @@ namespace commtest{
   public:
     
     comm_handler(config_param_t &cparam):
-      zmq_ctx(new zmq::context_t(1)),
-      msgq(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
-      taskq(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PUSH)),
-      conn_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
-      msgpush(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PUSH)),
-      taskpull(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
-      connpush(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PUSH)),
-      router_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_ROUTER)),
-      monitor_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PAIR)),
-      shutdown_sock(new zmq::socket_t(*(zmq_ctx.get()), ZMQ_PULL)),
+      zmq_ctx(1),
+      msgq(zmq_ctx, ZMQ_PULL),
+      taskq(zmq_ctx, ZMQ_PUSH),
+      conn_sock(zmq_ctx, ZMQ_PULL),
+      shutdown_sock(zmq_ctx, ZMQ_PULL),
+      router_sock(zmq_ctx, ZMQ_ROUTER),
+      monitor_sock(zmq_ctx, ZMQ_PAIR),
       id(IDE2I(cparam.id)),
       ip(cparam.ip),
       port(cparam.port),
       accept_conns(cparam.accept_conns)
     {
-      //pthread_mutex_init(&msgq_mtx, NULL);
-      //pthread_mutex_init(&taskq_mtx, NULL);
       pthread_mutex_init(&sync_mtx, NULL);
       try{	
-	msgq->bind(MSGQ_ENDP);
-	msgpush->connect(MSGQ_ENDP);
-	taskq->bind(TASKQ_ENDP);      
-	taskpull->connect(TASKQ_ENDP);
-	conn_sock->bind(CONN_ENDP);
-	connpush->connect(CONN_ENDP);
-	shutdown_sock->bind(SHUTDOWN_ENDP);
+	msgq.bind(MSGQ_ENDP);
+	taskq.bind(TASKQ_ENDP);
+	conn_sock.bind(CONN_ENDP);
+	shutdown_sock.bind(SHUTDOWN_ENDP);
 
       }catch(zmq::error_t e){
-	LOG(DBG, stderr, "Failed to connect to inproc socket: %s\n", e.what());
+	LOG(DBG, stderr, "Failed to bind to inproc socket: %s\n", e.what());
 	throw std::bad_alloc();
       }
-      LOG(DBG, stderr, "inproc socket connection established\n");
+
       pthread_mutex_lock(&sync_mtx);
       errcode = 0;
       int ret = pthread_create(&pthr, NULL, start_handler, this);

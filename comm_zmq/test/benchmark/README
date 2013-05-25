@@ -1,0 +1,11 @@
+vcloud test results
+
+1 to 1
+
+2   bytes 1001 us
+2K  bytes 1089 us
+10K bytes 1282 us
+
+1 to 4 machines, 8 procs each
+
+10K bytes 1619 us

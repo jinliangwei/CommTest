@@ -2,7 +2,7 @@
 CPP = g++
 INCFLAGS = -Isrc
 CPPFLAGS = -g -O2 -Wall -Wno-strict-aliasing
-LIBS = -lboost_program_options -pthread -lzmq
+LIBS = -lboost_program_options -lboost_thread-mt -pthread -lzmq
 
 CPPSRC = src/*.cpp
 HPPSRC = src/*.hpp
@@ -10,7 +10,7 @@ HPPSRC = src/*.hpp
 basic: server client
 chain: chain-server chain-client chain-serclient
 benchmark:benserver benclient
-
+multithread: muserver mclient
 
 server: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
 	mkdir -p bin
@@ -44,6 +44,17 @@ benserver: $(CPPSRC) $(HPPSRC) test/benchmark/server.cpp
 benclient: $(CPPSRC) $(HPPSRC) test/benchmark/server.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/benchmark/client.cpp $(LIBS) -o bin/benclient
+
+
+mserver: $(CPPSRC) $(HPPSRC) test/multi_thread/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multi_thread/server.cpp $(LIBS) -o bin/mserver
+
+
+mclient: $(CPPSRC) $(HPPSRC) test/multi_thread/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multi_thread/client.cpp $(LIBS) -o bin/mclient
+
 
 clean:
 	rm -rf bin

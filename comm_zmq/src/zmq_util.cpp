@@ -4,12 +4,12 @@
 /*
  * return number of bytes received, negative if error 
  */
-int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data)
+int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data)
 {
     zmq::message_t msgt;
     int nbytes;
     try{
-      nbytes = sock->recv(&msgt);
+      nbytes = sock.recv(&msgt);
     }catch(zmq::error_t e){
       //LOG(NOR, stderr, "recv failed: %s\n", e.what());
       return -1;
@@ -34,11 +34,11 @@ int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data)
 /*
  * return number of bytes received, negative if error
  */
-int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid)
+int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid)
 {
     zmq::message_t msgt;
     try{
-      sock->recv(&msgt);
+      sock.recv(&msgt);
     }catch(zmq::error_t e){
       //LOG(NOR, stderr, "recv cid failed: %s\n", e.what());
       return -1;
@@ -56,11 +56,11 @@ int recv_msg(zmq::socket_t *sock, boost::shared_array<uint8_t> &data, commtest::
 /*
  * return number of bytes sent, negative if error
  */
-int send_msg(zmq::socket_t *sock, uint8_t *data, size_t len, int flag){
+int send_msg(zmq::socket_t &sock, uint8_t *data, size_t len, int flag){
   
   int nbytes;
   try{
-    nbytes = sock->send(data, len, flag);
+    nbytes = sock.send(data, len, flag);
   }catch(zmq::error_t e){
     //LOG(NOR, stderr, "send failed: %s\n", e.what());
     return -1;
@@ -68,7 +68,7 @@ int send_msg(zmq::socket_t *sock, uint8_t *data, size_t len, int flag){
   return nbytes;
 }
 
-int send_msg(zmq::socket_t *sock, commtest::cliid_t cid, uint8_t *data, size_t len, int flag)
+int send_msg(zmq::socket_t &sock, commtest::cliid_t cid, uint8_t *data, size_t len, int flag)
 {
   
   //LOG(DBG, stderr, "send to cid = 0x%x\n", cid);
