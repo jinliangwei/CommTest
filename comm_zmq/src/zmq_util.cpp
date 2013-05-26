@@ -1,8 +1,64 @@
 
 #include "zmq_util.hpp"
 
+// 0 for received nothing
+int recv_msg_async(zmq::socket_t &sock, boost::shared_array<uint8_t> &data)
+{
+    zmq::message_t msgt;
+    int nbytes;
+    try{
+      nbytes = sock.recv(&msgt, ZMQ_DONTWAIT);
+    }catch(zmq::error_t e){
+      return -1;
+    }
+
+    if(nbytes == 0){
+      if(zmq_errno() == EAGAIN)
+	return 0;
+      else
+	return -1;
+    }
+
+    size_t len = msgt.size();    
+    uint8_t *dataptr;
+    try{
+      dataptr = new uint8_t[len];
+    }catch(std::bad_alloc e){
+      return -1;
+    }
+    
+    memcpy(dataptr, msgt.data(), len);
+    data.reset(dataptr);
+    return len;
+}
+// 0 for received nothing
+int recv_msg_async(zmq::socket_t &sock, commtest::cliid_t &cid, boost::shared_array<uint8_t> &data)
+{
+    zmq::message_t msgt;
+    int nbytes;
+    try{
+      nbytes = sock.recv(&msgt, ZMQ_DONTWAIT);
+    }catch(zmq::error_t e){
+      return -1;
+    }
+
+    if(nbytes == 0){
+      if(zmq_errno() == EAGAIN)
+	return 0;
+      else
+	return -1;
+    }
+    
+    size_t len = msgt.size();
+    if(len != sizeof(commtest::cliid_t)) return -1;
+
+    cid = *((commtest::cliid_t *) msgt.data());
+
+    return recv_msg(sock, data); //it does not matter to use recv_msg_async or recv_msg
+}
+
 /*
- * return number of bytes received, negative if error 
+ * return number of bytes received, negative if error, 0 for received nothing, which should be treated as error
  */
 int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data)
 {
@@ -34,7 +90,7 @@ int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data)
 /*
  * return number of bytes received, negative if error
  */
-int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid)
+int recv_msg(zmq::socket_t &sock, commtest::cliid_t &cid, boost::shared_array<uint8_t> &data)
 {
     zmq::message_t msgt;
     try{

@@ -170,9 +170,8 @@ namespace commtest{
     //not thread-safe
     int send(cliid_t cid, uint8_t *data, size_t len); //non-blocking send
     int recv(cliid_t &cid, boost::shared_array<uint8_t> &data); //blocking recv
+    int recv_async(cliid_t &cid, boost::shared_array<uint8_t> &data); // nonblocking recv
     int shutdown();
   };
-
-
 }
 #endif

@@ -11,13 +11,13 @@ basic: server client
 chain: chain-server chain-client chain-serclient
 benchmark:benserver benclient
 multithread: muserver mclient
+async: aserver aclient
 
 server: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/basic/server.cpp $(LIBS) -o bin/server
 
-
-client: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
+client: $(CPPSRC) $(HPPSRC) test/basic/client.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/basic/client.cpp $(LIBS) -o bin/client
 
@@ -51,10 +51,17 @@ mserver: $(CPPSRC) $(HPPSRC) test/multi_thread/server.cpp
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multi_thread/server.cpp $(LIBS) -o bin/mserver
 
 
-mclient: $(CPPSRC) $(HPPSRC) test/multi_thread/server.cpp
+mclient: $(CPPSRC) $(HPPSRC) test/multi_thread/client.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multi_thread/client.cpp $(LIBS) -o bin/mclient
 
+aserver: $(CPPSRC) $(HPPSRC) test/async/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/async/server.cpp $(LIBS) -o bin/aserver
+
+aclient: $(CPPSRC) $(HPPSRC) test/async/client.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/async/client.cpp $(LIBS) -o bin/aclient
 
 clean:
 	rm -rf bin

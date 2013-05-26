@@ -8,12 +8,23 @@
 /*
  * return number of bytes received, negative if error 
  */
+int recv_msg_async(zmq::socket_t &sock, boost::shared_array<uint8_t> &data);
+
+/*
+ * return number of bytes received, negative if error
+ */
+int recv_msg_async(zmq::socket_t &sock, commtest::cliid_t &cid, boost::shared_array<uint8_t> &data);
+
+/*
+ * return number of bytes received, negative if error 
+ */
 int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data);
 
 /*
  * return number of bytes received, negative if error
  */
-int recv_msg(zmq::socket_t &sock, boost::shared_array<uint8_t> &data, commtest::cliid_t &cid);
+int recv_msg(zmq::socket_t &sock, commtest::cliid_t &cid, boost::shared_array<uint8_t> &data);
+
 
 /*
  * return number of bytes sent, negative if error

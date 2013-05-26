@@ -5,6 +5,8 @@
 
 #define COMM_HANDLER_INIT "hello"
 
+//TODO, check return value for functions which may cause error
+
 namespace commtest {
 
   cliid_t comm_handler::get_one_connection(){
@@ -76,10 +78,8 @@ namespace commtest {
   }
 
   int comm_handler::recv(cliid_t &cid, boost::shared_array<uint8_t> &data){
-    LOG(DBG, stderr, "recv task before check!!!!!\n");
     if(errcode) return -1;
-    LOG(DBG, stderr, "recv task!!!!!\n");
-    
+    LOG(DBG, stderr, "recv task!!!!!\n");    
     if(taskpull.get() == NULL){
       zmq::socket_t *sock;
       try{
@@ -96,7 +96,33 @@ namespace commtest {
     }
 
     int incid;
-    int size = recv_msg(*taskpull, data, incid);
+    int size = recv_msg(*taskpull, incid, data);
+    cid = IDI2E(incid);
+    if(errcode) return -1;
+    return size;
+  }
+
+  int comm_handler::recv_async(cliid_t &cid, boost::shared_array<uint8_t> &data){
+    if(errcode) return -1;
+    LOG(DBG, stderr, "recv_async task!!!!!\n");    
+    if(taskpull.get() == NULL){
+      zmq::socket_t *sock;
+      try{
+	sock = new zmq::socket_t(zmq_ctx, ZMQ_PULL);
+      }catch(std::bad_alloc ba){
+	return -1;
+      }
+      taskpull.reset(sock);
+      try{
+	taskpull->connect(TASKQ_ENDP);
+      }catch(zmq::error_t e){
+	return -1;
+      }
+    }
+
+    int incid;
+    int size = recv_msg_async(*taskpull, incid, data);
+    if(size == 0) return 0;
     cid = IDI2E(incid);
     if(errcode) return -1;
     return size;
@@ -177,7 +203,7 @@ namespace commtest {
 	int len;
 	cliid_t cid;
 
-	len = recv_msg(comm->msgq, data, cid);
+	len = recv_msg(comm->msgq, cid, data);
 	if(len < 0){
 	  LOG(DBG, stderr, "recv from msgq failed");
 	  comm->errcode = 1;
@@ -194,7 +220,7 @@ namespace commtest {
 	int len;
 	cliid_t cid;
 	
-	len = recv_msg(comm->router_sock, data, cid);
+	len = recv_msg(comm->router_sock, cid, data);
 	if(len < 0){
 	  LOG(DBG, stderr, "recv from router_sock failed");
 	  comm->errcode = 1;
@@ -254,7 +280,7 @@ namespace commtest {
 	cliid_t destid;
 	char *connstr_c;
 	boost::shared_array<uint8_t> data;
-	int ret = recv_msg(comm->conn_sock, data, destid);
+	int ret = recv_msg(comm->conn_sock, destid, data);
 	if(ret < 0){
 	  LOG(DBG, stderr, "recv from conn_sock failed!\n");
 	  comm->errcode = 1;
