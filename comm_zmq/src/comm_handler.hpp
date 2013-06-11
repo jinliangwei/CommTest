@@ -11,15 +11,17 @@
 #include <boost/unordered_map.hpp>
 #include <boost/shared_array.hpp>
 #include <boost/thread/tss.hpp>
-
+#include <boost/scoped_array.hpp>
+/*
 #define DBG 0  // print when debugging
 #define ERR 1  // print when error should be exposed
 #define NOR 2  // always print
-
+*/
 #define MSGQ_ENDP "inproc://msgq"
 #define TASKQ_ENDP "inproc://taskq"
 #define SHUTDOWN_ENDP "inproc://shutdown"
 #define CONN_ENDP "inproc://conn"
+#define MC_SEND_ENDP "inproc://mc_send"
 
 #ifndef COMM_HANDLER_LOGLEVEL
 #define COMM_HANDLER_LOGLEVEL 0
@@ -35,6 +37,10 @@ namespace commtest{
   
   typedef int32_t cliid_t;
 
+  const int DBG = 0;  // print when debugging
+  const int ERR = 1;  // print when error should be exposed
+  const int NOR = 2;  // always print
+  
   template<class T>
   class pcqueue{ //producer-consumer queue
   private:
@@ -70,36 +76,51 @@ namespace commtest{
     }
   };
 
+  struct multicast_group_t{
+    std::string ip;
+    std::string multicast_addr;
+    std::string multicast_port;
+  };
+
   struct config_param_t{
     cliid_t id; //must be set; others are optional
     bool accept_conns; //default false
     std::string ip;
     std::string port;
+    std::vector<multicast_group_t> mc_tocreate;
+    std::vector<multicast_group_t> mc_tojoin;
+    int multicast_rate; //uint: bis per second; default 1000
 
     config_param_t():
       id(0),
       accept_conns(false),
       ip("localhost"),
-      port("9000"){}
+      port("9000"),
+      multicast_rate(1000){}
 
     config_param_t(cliid_t _id, bool _accept_conns, std::string _ip, std::string _port):
       id(_id),
       accept_conns(_accept_conns),
       ip(_ip),
-      port(_port){}
+      port(_port),
+      multicast_rate(1000){}
   };
   
   //TODO: add two callbacks 1) connection loss 2) error state
   //TODO: add funciton to clear error state
   
+
   class comm_handler {
   private:
     zmq::context_t zmq_ctx;
+
+    // used for comm thread to communicate with worker threads, like make conn
     // a pull socket; application threads push to a corresponding socket
     zmq::socket_t msgq;
     // a push socket; application threads pull from a corresponding socket
     zmq::socket_t taskq;
     zmq::socket_t conn_sock;
+
     zmq::socket_t shutdown_sock; // a pull socket; if read anything, then shut down
     zmq::socket_t router_sock;
     zmq::socket_t monitor_sock;
@@ -107,7 +128,17 @@ namespace commtest{
     //shared among worker threads, should be protected by mutex
     boost::thread_specific_ptr<zmq::socket_t> msgpush;
     boost::thread_specific_ptr<zmq::socket_t> taskpull;
-    boost::thread_specific_ptr<zmq::socket_t> connpush;    
+    boost::thread_specific_ptr<zmq::socket_t> connpush;
+
+    // to support multicast
+    zmq::socket_t mc_sendpull;
+    boost::thread_specific_ptr<zmq::socket_t> mc_sendpush;
+
+    boost::shared_array< boost::shared_ptr<zmq::socket_t> > mc_pub;
+    boost::shared_ptr<zmq::socket_t> mc_sub;
+
+    int max_pub;
+    bool recv_mc;
 
     pthread_mutex_t sync_mtx;
     pthread_t pthr;
@@ -119,6 +150,10 @@ namespace commtest{
     boost::unordered_map<cliid_t, bool> clientmap;
     bool accept_conns;
     static void *start_handler(void *_comm);
+
+    // TODO: we can allow clients to join multicast group after their communication threads start running, we do it this
+    // way just for simpilicity
+    int init_multicast(config_param_t &cparam);
     
   public:
     
@@ -130,21 +165,26 @@ namespace commtest{
       shutdown_sock(zmq_ctx, ZMQ_PULL),
       router_sock(zmq_ctx, ZMQ_ROUTER),
       monitor_sock(zmq_ctx, ZMQ_PAIR),
+      mc_sendpull(zmq_ctx, ZMQ_PULL),
+      recv_mc(false),
       id(IDE2I(cparam.id)),
       ip(cparam.ip),
       port(cparam.port),
-      accept_conns(cparam.accept_conns)
-    {
+      accept_conns(cparam.accept_conns){
       pthread_mutex_init(&sync_mtx, NULL);
       try{	
-	msgq.bind(MSGQ_ENDP);
-	taskq.bind(TASKQ_ENDP);
-	conn_sock.bind(CONN_ENDP);
-	shutdown_sock.bind(SHUTDOWN_ENDP);
+        msgq.bind(MSGQ_ENDP);
+        taskq.bind(TASKQ_ENDP);
+        conn_sock.bind(CONN_ENDP);
+        shutdown_sock.bind(SHUTDOWN_ENDP);
+        mc_sendpull.bind(MC_SEND_ENDP);
+      }catch(zmq::error_t &e){
+        LOG(DBG, stderr, "Failed to bind to inproc socket: %s\n", e.what());
+        throw std::bad_alloc();
+      }
 
-      }catch(zmq::error_t e){
-	LOG(DBG, stderr, "Failed to bind to inproc socket: %s\n", e.what());
-	throw std::bad_alloc();
+      if(init_multicast(cparam) < 0){
+        throw std::bad_alloc();
       }
 
       pthread_mutex_lock(&sync_mtx);
@@ -165,9 +205,9 @@ namespace commtest{
     
     cliid_t get_one_connection();
     int connect_to(std::string destip, std::string destport, cliid_t destid);
-    
-    int broadcast(uint8_t *data, size_t len);
-    //not thread-safe
+    int mc_send(cliid_t mc_group, uint8_t *data, size_t len);
+
+    // thread-safe send, recv, recv_async
     int send(cliid_t cid, uint8_t *data, size_t len); //non-blocking send
     int recv(cliid_t &cid, boost::shared_array<uint8_t> &data); //blocking recv
     int recv_async(cliid_t &cid, boost::shared_array<uint8_t> &data); // nonblocking recv

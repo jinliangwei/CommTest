@@ -7,11 +7,14 @@ LIBS = -lboost_program_options -lboost_thread-mt -pthread -lzmq
 CPPSRC = src/*.cpp
 HPPSRC = src/*.hpp
 
+all: basic
+
 basic: server client
 chain: chain-server chain-client chain-serclient
 benchmark:benserver benclient
 multithread: muserver mclient
 async: aserver aclient
+multicast: mcserver mcclient
 
 server: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
 	mkdir -p bin
@@ -62,6 +65,14 @@ aserver: $(CPPSRC) $(HPPSRC) test/async/server.cpp
 aclient: $(CPPSRC) $(HPPSRC) test/async/client.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/async/client.cpp $(LIBS) -o bin/aclient
+	
+mcserver: $(CPPSRC) $(HPPSRC) test/multicast/server.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multicast/server.cpp $(LIBS) -o bin/mcserver
+
+mcclient: $(CPPSRC) $(HPPSRC) test/multicast/client.cpp
+	mkdir -p bin
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multicast/client.cpp $(LIBS) -o bin/mcclient
 
 clean:
 	rm -rf bin
