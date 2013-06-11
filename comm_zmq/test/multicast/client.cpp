@@ -16,12 +16,14 @@ int main(int argc, char *argv[]){
   cliid_t sid;
   std::string mcip;
   std::string mcport;
+  std::string ip;
 
   options.add_options()
     ("id", boost_po::value<cliid_t>(&id)->default_value(1), "node id")
     ("sid", boost_po::value<cliid_t>(&sid)->default_value(0), "scheduler id")
     ("sip", boost_po::value<std::string>(&sip)->default_value("127.0.0.1"), "ip address")
     ("sport", boost_po::value<std::string>(&sport)->default_value("9999"), "port number")
+    ("ip", boost_po::value<std::string>(&ip)->default_value("127.0.0.1"), "ip address used to connect")
     ("mcip", boost_po::value<std::string>(&mcip)->default_value("239.255.1.1"), "multicast ip address")
     ("mcport", boost_po::value<std::string>(&mcport)->default_value("10000"), "multicast port number");
   
@@ -31,7 +33,7 @@ int main(int argc, char *argv[]){
   
   config_param_t config(id, false, "", ""); 
   std::vector<multicast_group_t> mc_tojoin(1);
-  mc_tojoin[0].ip = sip;
+  mc_tojoin[0].ip = ip;
   mc_tojoin[0].multicast_addr = mcip;
   mc_tojoin[0].multicast_port = mcport;
   config.mc_tojoin = mc_tojoin;
