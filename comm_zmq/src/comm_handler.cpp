@@ -49,7 +49,7 @@ namespace commtest {
   }
 
   int comm_handler::init_multicast(config_param_t &cparam){
-
+    LOG(DBG, stderr, "init multicast\n");
     // create multicast groups if needed
     if(cparam.mc_tocreate.size() > 0){
       max_pub = cparam.mc_tocreate.size();
@@ -58,9 +58,10 @@ namespace commtest {
       for(idx = 0; idx < max_pub; ++idx){
         std::string connstr = std::string("epgm://")
                           + cparam.mc_tocreate[idx].ip + std::string(";")
-                          + std::string(cparam.mc_tocreate[idx].multicast_addr)
+                          + cparam.mc_tocreate[idx].multicast_addr
                           + std::string(":")
-                          + std::string(cparam.mc_tocreate[idx].multicast_addr);
+                          + cparam.mc_tocreate[idx].multicast_port;
+        LOG(DBG, stderr, "mulitcast bind to %s\n", connstr.c_str());
         try{
           mc_pub[idx].reset(new zmq::socket_t(zmq_ctx, ZMQ_PUB));
           mc_pub[idx]->bind(connstr.c_str());
@@ -74,7 +75,7 @@ namespace commtest {
 
     if(cparam.mc_tojoin.size() > 0){
       try{
-        mc_sub.reset(new zmq::socket_t(zmq_ctx, ZMQ_PUB));
+        mc_sub.reset(new zmq::socket_t(zmq_ctx, ZMQ_SUB));
       }catch(...){
         errcode = 1;
         return -1;
@@ -86,9 +87,9 @@ namespace commtest {
       for(idx = 0; idx < (int) cparam.mc_tojoin.size(); ++idx){
         std::string connstr = std::string("epgm://")
                           + cparam.mc_tocreate[idx].ip + std::string(";")
-                          + std::string(cparam.mc_tocreate[idx].multicast_addr)
+                          + cparam.mc_tocreate[idx].multicast_addr
                           + std::string(":")
-                          + std::string(cparam.mc_tocreate[idx].multicast_addr);
+                          + cparam.mc_tocreate[idx].multicast_port;
        try{
           mc_sub->connect(connstr.c_str());
           mc_sub->setsockopt(ZMQ_RATE, &cparam.multicast_rate, sizeof(cparam.multicast_rate));
@@ -264,6 +265,7 @@ namespace commtest {
 
     while(true){
       LOG(DBG, stderr, "comm_handler starts listening...\n");
+
       try { 
         int num_poll;
         if(comm->recv_mc){

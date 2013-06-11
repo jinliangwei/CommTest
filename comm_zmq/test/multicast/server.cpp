@@ -55,7 +55,6 @@ int main(int argc, char *argv[]){
     return -1;
   }
   LOG(NOR, stderr, "comm_handler created\n");
-  
   int i;
   for(i = 0; i < num_clients; i++){
     cliid_t cid;
