@@ -91,6 +91,7 @@ namespace commtest {
                           + std::string(":")
                           + cparam.mc_tocreate[idx].multicast_port;
        try{
+         LOG(DBG, stderr, "mulitcast connect to %s\n", connstr.c_str());
           mc_sub->connect(connstr.c_str());
           mc_sub->setsockopt(ZMQ_RATE, &cparam.multicast_rate, sizeof(cparam.multicast_rate));
         }catch (zmq::error_t &e){

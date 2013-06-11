@@ -96,14 +96,14 @@ namespace commtest{
       accept_conns(false),
       ip("localhost"),
       port("9000"),
-      multicast_rate(100){}
+      multicast_rate(1000){}
 
     config_param_t(cliid_t _id, bool _accept_conns, std::string _ip, std::string _port):
       id(_id),
       accept_conns(_accept_conns),
       ip(_ip),
       port(_port),
-      multicast_rate(100){}
+      multicast_rate(1000){}
   };
   
   //TODO: add two callbacks 1) connection loss 2) error state

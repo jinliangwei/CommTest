@@ -34,7 +34,7 @@ int main(int argc, char *argv[]){
   mc_tojoin[0].ip = sip;
   mc_tojoin[0].multicast_addr = mcip;
   mc_tojoin[0].multicast_port = mcport;
-  config.mc_tocreate = mc_tojoin;
+  config.mc_tojoin = mc_tojoin;
   
   comm_handler *comm;
   try{
