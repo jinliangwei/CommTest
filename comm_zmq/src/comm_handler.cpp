@@ -86,10 +86,10 @@ namespace commtest {
       int idx;
       for(idx = 0; idx < (int) cparam.mc_tojoin.size(); ++idx){
         std::string connstr = std::string("epgm://")
-                          + cparam.mc_tocreate[idx].ip + std::string(";")
-                          + cparam.mc_tocreate[idx].multicast_addr
+                          + cparam.mc_tojoin[idx].ip + std::string(";")
+                          + cparam.mc_tojoin[idx].multicast_addr
                           + std::string(":")
-                          + cparam.mc_tocreate[idx].multicast_port;
+                          + cparam.mc_tojoin[idx].multicast_port;
        try{
          LOG(DBG, stderr, "mulitcast connect to %s\n", connstr.c_str());
           mc_sub->connect(connstr.c_str());
