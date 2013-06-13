@@ -17,6 +17,23 @@
 #define ERR 1  // print when error should be exposed
 #define NOR 2  // always print
 */
+
+/*
+ * TODO:
+ * This code has become too complicated with the functionalities added after initial design. A code refactor is needed.
+ *
+ * 1. Add message format -- use 0mq's multi-part message.
+ *   1) Except for outgoing messages, all other messages (internal messages) do not need to send a prefix (destination id
+ *      or publish group id). So other messages should use send_msg/recv_msg without cliid_t but with flag set to MORE.
+ *      They should follow the following format:
+ *      message_type - an enum
+ *      other parts...
+ *
+ *      Thus inter-thread sockets should be reduced to only one.
+ *   2) A better logging system.
+ *
+ * */
+
 #define MSGQ_ENDP "inproc://msgq"
 #define TASKQ_ENDP "inproc://taskq"
 #define SHUTDOWN_ENDP "inproc://shutdown"
@@ -213,15 +230,35 @@ namespace commtest{
       pthread_mutex_destroy(&sync_mtx);
     }
 
+    /*
+     * Usage:
+     * If config_param_t::accept_conns is true, comm_handler may accept connections, otherwise, it may not.
+     * Note that if a comm_handler may accept connections, it accepts connections all the time, not only
+     * when get_one_connection() is called.
+     *
+     * For comm_handler to be a publisher, it must:
+     * 1. have config_param_t::accept_conns set, so comm_handler may accept connections.
+     * 2. call init_pub once with publication ip and port.
+     * Note that init_pub may be called multiple times, but only the first may (and must) have ip and port set.
+     *
+     * For comm_handler to subscribe to a publication group, it must:
+     * 1. first, call connect_to to connect to publisher's unicast socket;
+     * 2. second, call subscribe_to, to subscribe to one or publication groups.
+     * 3. subscribe_to may be called multipule times, but each ip/port pair may only be used once.
+     *
+     * */
+
     
     cliid_t get_one_connection();
     int connect_to(std::string destip, std::string destport, cliid_t destid);
-    // does not return until get enough subscribers
-    int init_pub(std::string ip, std::string port, cliid_t gid, int num_subs);
     // pubids should be different from any node ids
     int subscribe_to(std::string pubip, std::string pubport, std::vector<cliid_t> pubids);
 
+    // does not return until get enough subscribers
+    // can only be called once with ip and port set
+    int init_pub(std::string ip, std::string port, cliid_t gid, int num_subs);
 
+    // used by a publisher to publish a message
     int publish(cliid_t group, uint8_t *data, size_t len);
     // thread-safe send, recv, recv_async
     int send(cliid_t cid, uint8_t *data, size_t len); //non-blocking send

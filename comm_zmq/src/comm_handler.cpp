@@ -339,7 +339,7 @@ namespace commtest {
       }
 
       if(pollitems[0].revents){
-        LOG(DBG, stderr, "message on msgq\n");
+        //LOG(DBG, stderr, "message on msgq\n");
         boost::shared_array<uint8_t> data;
         int len;
         cliid_t cid;
@@ -350,7 +350,7 @@ namespace commtest {
           comm->errcode = 1;
           return NULL;
         }
-        LOG(DBG, stderr, "got message from msg queue, len = %d\n", len);
+        //LOG(DBG, stderr, "got message from msg queue, len = %d\n", len);
         send_msg(comm->router_sock, cid, data.get(), len, 0);
       }
       
@@ -367,10 +367,10 @@ namespace commtest {
           return NULL;
         }
 	
-        LOG(DBG, stderr, "received from router_sock: %s, len = %d\n", (char *) data.get(), len);
+        //LOG(DBG, stderr, "received from router_sock: %s, len = %d\n", (char *) data.get(), len);
         if(len == (strlen(COMM_HANDLER_SUB_INIT) + 1)
             && memcmp(COMM_HANDLER_SUB_INIT, data.get(), strlen(COMM_HANDLER_SUB_INIT) + 1) == 0){
-          LOG(DBG, stderr, "received from router_sock --- compare successful!!\n");
+          //LOG(DBG, stderr, "received from router_sock --- compare successful!!\n");
           send_msg(comm->suberq, cid, data.get(), strlen(COMM_HANDLER_SUB_INIT) + 1, 0);
           pthread_mutex_unlock(&comm->sync_mtx);
         }else{
@@ -384,7 +384,7 @@ namespace commtest {
             comm->clientmap[cid] = true;
             comm->clientq.push(IDI2E(cid));
           }else{
-            LOG(DBG, stderr, "send task to taskq\n");
+            //LOG(DBG, stderr, "send task to taskq\n");
             send_msg(comm->taskq, cid, data.get(), len, 0);
           }
         }
@@ -406,7 +406,7 @@ namespace commtest {
 
         switch (event->event){
         case ZMQ_EVENT_CONNECTED:
-          LOG(DBG, stderr, "established connection.\n");
+          //LOG(DBG, stderr, "established connection.\n");
           break;
         case ZMQ_EVENT_ACCEPTED:
           LOG(DBG, stderr, "accepted connection.\n");
@@ -453,7 +453,7 @@ namespace commtest {
       }
 
       if(pollitems[5].revents){
-        LOG(DBG, stderr, "message on pub_sendpull\n");
+        //LOG(DBG, stderr, "message on pub_sendpull\n");
         boost::shared_array<uint8_t> data;
         int len;
         cliid_t gid;
@@ -486,7 +486,7 @@ namespace commtest {
           comm->errcode = 1;
           return NULL;
         }
-        LOG(DBG, stderr, "received from subpull : %s\n", (char *) data.get());
+        //LOG(DBG, stderr, "received from subpull : %s\n", (char *) data.get());
         std::string dstr((char *) data.get());
         int dlim = dstr.find('&');
 
@@ -511,7 +511,7 @@ namespace commtest {
           ss >> temp;
           ss >> gid;
           try{
-            LOG(DBG, stderr, "subscribe to %d\n", gid);
+            //LOG(DBG, stderr, "subscribe to %d\n", gid);
             comm->sub_sock.setsockopt(ZMQ_SUBSCRIBE, &gid, sizeof(cliid_t));
           }catch(zmq::error_t &e){
             comm->errcode = 1;
