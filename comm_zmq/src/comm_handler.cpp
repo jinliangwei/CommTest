@@ -2,8 +2,11 @@
 #include <assert.h>
 #include "zmq_util.hpp"
 #include <unistd.h>
+#include <sstream>
 
-#define COMM_HANDLER_INIT "hello"
+#define COMM_HANDLER_INIT "comm_handler_hello"
+#define COMM_HANDLER_PUB_INIT "pub_hello"
+#define COMM_HANDLER_SUB_INIT "sub_hello"
 
 //TODO, check return value for functions which may cause error
 
@@ -19,12 +22,11 @@ namespace commtest {
     if(errcode) return -1;    
     std::string connstr = std::string("tcp://") + destip + std::string(":") + destport;
 
-
     if(connpush.get() == NULL){
       zmq::socket_t *sock;
       try{
         sock = new zmq::socket_t(zmq_ctx, ZMQ_PUSH);
-      }catch(std::bad_alloc &ba){
+      }catch(...){
         return -1;
       }
       connpush.reset(sock);
@@ -48,80 +50,133 @@ namespace commtest {
     return 0;
   }
 
-  int comm_handler::init_multicast(config_param_t &cparam){
-    LOG(DBG, stderr, "init multicast\n");
-    // create multicast groups if needed
-    if(cparam.mc_tocreate.size() > 0){
-      max_pub = cparam.mc_tocreate.size();
-      mc_pub.reset(new boost::shared_ptr<zmq::socket_t>[max_pub]);
-      int idx;
-      for(idx = 0; idx < max_pub; ++idx){
-        std::string connstr = std::string("epgm://")
-                          + cparam.mc_tocreate[idx].ip + std::string(";")
-                          + cparam.mc_tocreate[idx].multicast_addr
-                          + std::string(":")
-                          + cparam.mc_tocreate[idx].multicast_port;
-        LOG(DBG, stderr, "mulitcast bind to %s\n", connstr.c_str());
+  int comm_handler::init_pub(std::string ip, std::string port, cliid_t gid, int num_subs){
+    if(!ip.empty() && !port.empty()){
+      std::string connstr = std::string("tcp://") + ip + std::string(":") + port;
+      if(pubstart_push.get() == NULL){
+        zmq::socket_t *sock;
         try{
-          mc_pub[idx].reset(new zmq::socket_t(zmq_ctx, ZMQ_PUB));
-          mc_pub[idx]->bind(connstr.c_str());
-          mc_pub[idx]->setsockopt(ZMQ_RATE, &cparam.multicast_rate, sizeof(cparam.multicast_rate));
-        }catch (...){
-          errcode = 1;
+          sock = new zmq::socket_t(zmq_ctx, ZMQ_PUSH);
+        }catch(...){
           return -1;
         }
+        pubstart_push.reset(sock);
+        try{
+          pubstart_push->connect(PUB_START_ENDP);
+        }catch(zmq::error_t &e){
+          LOG(DBG, stderr, "Failed to connect to inproc socket: %s\n", e.what());
+          return -1;
+        }
+      }
+      pthread_mutex_lock(&sync_mtx);
+      int ret = send_msg(*pubstart_push, (uint8_t *) connstr.c_str(), connstr.size(), 0);
+      if(ret <= 0){
+        pthread_mutex_unlock(&sync_mtx);
+        return -1;
+      }
+      pthread_mutex_lock(&sync_mtx); //cannot return until comm thread starts running
+      pthread_mutex_unlock(&sync_mtx);
+    }
+    int nsubs = 0;
+
+    if(suberq_pull.get() == NULL){
+      zmq::socket_t *sock;
+      try{
+        sock = new zmq::socket_t(zmq_ctx, ZMQ_PULL);
+      }catch(...){
+        return -1;
+      }
+      suberq_pull.reset(sock);
+      try{
+        suberq_pull->connect(SUBER_Q_ENDP);
+      }catch(zmq::error_t &e){
+        LOG(DBG, stderr, "Failed to connect to inproc socket: %s\n", e.what());
+        return -1;
       }
     }
 
-    if(cparam.mc_tojoin.size() > 0){
-      try{
-        mc_sub.reset(new zmq::socket_t(zmq_ctx, ZMQ_SUB));
-      }catch(...){
-        errcode = 1;
-        return -1;
-      }
-
-      recv_mc = true;
-
-      int idx;
-      for(idx = 0; idx < (int) cparam.mc_tojoin.size(); ++idx){
-        std::string connstr = std::string("epgm://")
-                          + cparam.mc_tojoin[idx].ip + std::string(";")
-                          + cparam.mc_tojoin[idx].multicast_addr
-                          + std::string(":")
-                          + cparam.mc_tojoin[idx].multicast_port;
-       try{
-         LOG(DBG, stderr, "mulitcast connect to %s\n", connstr.c_str());
-          mc_sub->connect(connstr.c_str());
-          mc_sub->setsockopt(ZMQ_RATE, &cparam.multicast_rate, sizeof(cparam.multicast_rate));
-        }catch (zmq::error_t &e){
-          errcode = 1;
-          return -1;
+    while(nsubs < num_subs){
+      std::stringstream pubinit;
+      pubinit << COMM_HANDLER_PUB_INIT;
+      pubinit << "&" << id;
+      int ret = publish(gid, (uint8_t *) pubinit.str().c_str(), pubinit.str().size() + 1);
+      if(ret < 0) return -1;
+      do{
+        int cid;
+        boost::shared_array<uint8_t> data;
+        ret = recv_msg_async(*suberq_pull, cid, data);
+        if(ret > 0){
+          ++nsubs;
+          LOG(DBG, stderr, "got a client: cid = %d, nsubs = %d\n", cid, nsubs);
         }
-      }
+      }while(ret > 0);
+      sleep(1);
     }
     return 0;
   }
 
-  int comm_handler::mc_send(cliid_t mc_group, uint8_t *data, size_t len){
+  int comm_handler::subscribe_to(std::string pubip, std::string pubport, std::vector<cliid_t> pubids){
     if(errcode) return -1;
+    std::string connstr;
+    if(!pubip.empty() && !pubport.empty()){
+      connstr = std::string("tcp://") + pubip + std::string(":") + pubport;
+    }
 
-    if(mc_sendpush.get() == NULL){
+    if(subpush.get() == NULL){
       zmq::socket_t *sock;
       try{
         sock = new zmq::socket_t(zmq_ctx, ZMQ_PUSH);
       }catch(std::bad_alloc &ba){
         return -1;
       }
-      mc_sendpush.reset(sock);
+      subpush.reset(sock);
       try{
-        mc_sendpush->connect(MC_SEND_ENDP);
+        subpush->connect(SUB_PULL_ENDP);
+      }catch(zmq::error_t &e){
+        LOG(DBG, stderr, "Failed to connect to inproc socket: %s\n", e.what());
+        return -1;
+      }
+    }
+
+    std::stringstream ss;
+    ss << connstr;
+    ss << "&";
+    int i;
+    for(i = 0; i < (int) pubids.size(); ++i){
+      ss << ";" << pubids[i];
+    }
+
+    pthread_mutex_lock(&sync_mtx);
+    int ret = send_msg(*subpush, (uint8_t *) ss.str().c_str(), ss.str().size(), 0);
+    if(ret <= 0){
+      pthread_mutex_unlock(&sync_mtx);
+      return -1;
+    }
+    pthread_mutex_lock(&sync_mtx); //cannot return until comm thread starts running
+    pthread_mutex_unlock(&sync_mtx);
+    if(errcode) return -1;
+    return 0;
+  }
+
+  int comm_handler::publish(cliid_t group, uint8_t *data, size_t len){
+    if(errcode) return -1;
+
+    if(pub_sendpush.get() == NULL){
+      zmq::socket_t *sock;
+      try{
+        sock = new zmq::socket_t(zmq_ctx, ZMQ_PUSH);
+      }catch(std::bad_alloc &ba){
+        return -1;
+      }
+      pub_sendpush.reset(sock);
+      try{
+        pub_sendpush->connect(PUB_SEND_ENDP);
       }catch(zmq::error_t &e){
         return -1;
       }
     }
 
-    int ret = send_msg(*mc_sendpush, mc_group, data, len, 0);
+    int ret = send_msg(*pub_sendpush, group, data, len, 0);
     if(errcode) return -1;
     return ret;
   }
@@ -169,14 +224,17 @@ namespace commtest {
 
     int incid;
     int size = recv_msg(*taskpull, incid, data);
-    cid = IDI2E(incid);
+    if(incid >= 0)
+      cid = IDI2E(incid);
+    else
+      cid = incid;
     if(errcode) return -1;
     return size;
   }
 
   int comm_handler::recv_async(cliid_t &cid, boost::shared_array<uint8_t> &data){
     if(errcode) return -1;
-    LOG(DBG, stderr, "recv_async task!!!!!\n");    
+    LOG(DBG, stderr, "recv_async task!!!!!\n");
     if(taskpull.get() == NULL){
       zmq::socket_t *sock;
       try{
@@ -246,7 +304,7 @@ namespace commtest {
 
     pthread_mutex_unlock(&(comm->sync_mtx));
 
-    zmq::pollitem_t pollitems[7];
+    zmq::pollitem_t pollitems[9];
     pollitems[0].socket = comm->msgq;
     pollitems[0].events = ZMQ_POLLIN;
     pollitems[1].socket = comm->router_sock;
@@ -257,23 +315,22 @@ namespace commtest {
     pollitems[3].events = ZMQ_POLLIN;
     pollitems[4].socket = comm->conn_sock;
     pollitems[4].events = ZMQ_POLLIN;
-    pollitems[5].socket = comm->mc_sendpull;
+    pollitems[5].socket = comm->pub_sendpull;
     pollitems[5].events = ZMQ_POLLIN;
-    if(comm->recv_mc){
-      pollitems[6].socket = *comm->mc_sub;
-      pollitems[6].events = ZMQ_POLLIN;
-    }
+    pollitems[6].socket = comm->subpull;
+    pollitems[6].events = ZMQ_POLLIN;
+    pollitems[7].socket = comm->sub_sock;
+    pollitems[7].events = ZMQ_POLLIN;
+    pollitems[8].socket = comm->pubstart_pull;
+    pollitems[8].events = ZMQ_POLLIN;
+
 
     while(true){
       LOG(DBG, stderr, "comm_handler starts listening...\n");
 
       try { 
         int num_poll;
-        if(comm->recv_mc){
-          num_poll = zmq::poll(pollitems, 7);
-        }else{
-          num_poll = zmq::poll(pollitems, 6);
-        }
+        num_poll = zmq::poll(pollitems, 9);
         LOG(DBG, stderr, "num_poll = %d\n", num_poll);
       } catch (...) {
         comm->errcode = 1;
@@ -310,20 +367,26 @@ namespace commtest {
           return NULL;
         }
 	
-        LOG(DBG, stderr, "got task from router socket, identitylen = %d\n", len);
-
-        if(comm->clientmap.count(cid) == 0){
-          LOG(DBG, stderr, "this is a new client\n");
-          comm->clientmap[cid] = true;
-          comm->clientq.push(IDI2E(cid));
-        }else if(comm->clientmap[cid] == false){
-          //TODO: no connection loss detection
-          LOG(DBG, stderr, "this is a reconnected client\n");
-          comm->clientmap[cid] = true;
-          comm->clientq.push(IDI2E(cid));
+        LOG(DBG, stderr, "received from router_sock: %s, len = %d\n", (char *) data.get(), len);
+        if(len == (strlen(COMM_HANDLER_SUB_INIT) + 1)
+            && memcmp(COMM_HANDLER_SUB_INIT, data.get(), strlen(COMM_HANDLER_SUB_INIT) + 1) == 0){
+          LOG(DBG, stderr, "received from router_sock --- compare successful!!\n");
+          send_msg(comm->suberq, cid, data.get(), strlen(COMM_HANDLER_SUB_INIT) + 1, 0);
+          pthread_mutex_unlock(&comm->sync_mtx);
         }else{
-          LOG(DBG, stderr, "send task to taskq\n");
-          send_msg(comm->taskq, cid, data.get(), len, 0);
+          if(comm->clientmap.count(cid) == 0){
+            LOG(DBG, stderr, "this is a new client\n");
+            comm->clientmap[cid] = true;
+            comm->clientq.push(IDI2E(cid));
+          }else if(comm->clientmap[cid] == false){
+            //TODO: no connection loss detection
+            LOG(DBG, stderr, "this is a reconnected client\n");
+            comm->clientmap[cid] = true;
+            comm->clientq.push(IDI2E(cid));
+          }else{
+            LOG(DBG, stderr, "send task to taskq\n");
+            send_msg(comm->taskq, cid, data.get(), len, 0);
+          }
         }
       }
       
@@ -390,36 +453,122 @@ namespace commtest {
       }
 
       if(pollitems[5].revents){
-        LOG(DBG, stderr, "message on mc_sendpull\n");
+        LOG(DBG, stderr, "message on pub_sendpull\n");
         boost::shared_array<uint8_t> data;
         int len;
         cliid_t gid;
 
-        len = recv_msg(comm->mc_sendpull, gid, data);
+        len = recv_msg(comm->pub_sendpull, gid, data);
 
         if(len < 0){
-          LOG(DBG, stderr, "recv from mc_sendpull failed");
+          LOG(DBG, stderr, "recv from pub_sendpull failed");
           comm->errcode = 1;
           return NULL;
         }
-        if(gid < 0 || gid >= comm->max_pub){
+        if(gid < 0){
           comm->errcode = 1;
           return NULL;
         }
-        send_msg(*comm->mc_pub[gid], data.get(), len, 0);
+        int ret = send_msg(comm->pub_sock, gid, data.get(), len, 0);
+        if(ret < 0){
+          comm->errcode = 1;
+          return NULL;
+        }
       }
 
-      if(comm->recv_mc && pollitems[6].revents){
+      if(pollitems[6].revents){
         boost::shared_array<uint8_t> data;
         int len;
 
-        len = recv_msg(*comm->mc_sub, data);
+        len = recv_msg(comm->subpull, data);
         if(len < 0){
-          LOG(DBG, stderr, "recv from mc_sub failed");
+          LOG(DBG, stderr, "recv from subpull failed");
           comm->errcode = 1;
           return NULL;
         }
-        send_msg(comm->taskq, -1, data.get(), len, 0);
+        LOG(DBG, stderr, "received from subpull : %s\n", (char *) data.get());
+        std::string dstr((char *) data.get());
+        int dlim = dstr.find('&');
+
+        std::string addr = dstr.substr(0, dlim);
+        std::string gids = dstr.substr(dlim + 1, std::string::npos);
+
+        if(!addr.empty()){
+          try{
+            LOG(DBG, stderr, "connect to %s\n", addr.c_str());
+            comm->sub_sock.connect(addr.c_str());
+          }catch(zmq::error_t &e){
+            comm->errcode = 1;
+            return NULL;
+          }
+        }
+
+        std::stringstream ss;
+        ss << gids;
+        do{
+          cliid_t gid;
+          char temp;
+          ss >> temp;
+          ss >> gid;
+          try{
+            LOG(DBG, stderr, "subscribe to %d\n", gid);
+            comm->sub_sock.setsockopt(ZMQ_SUBSCRIBE, &gid, sizeof(cliid_t));
+          }catch(zmq::error_t &e){
+            comm->errcode = 1;
+            return NULL;
+          }
+        }while(!ss.eof());
+      }
+
+      if(pollitems[7].revents){
+        boost::shared_array<uint8_t> data;
+        int len;
+        cliid_t cid;
+
+        len = recv_msg(comm->sub_sock, cid, data);
+        if(len < 0){
+          LOG(DBG, stderr, "recv from sub failed");
+          comm->errcode = 1;
+          return NULL;
+        }
+
+        LOG(DBG, stderr, "received from sub_sock: %s\n", (char *) data.get());
+
+        if(memcmp(COMM_HANDLER_PUB_INIT, data.get(), strlen(COMM_HANDLER_PUB_INIT)) == 0){
+          std::string dstr((char *) data.get());
+          int dlim = dstr.find('&');
+          std::string cidstr = dstr.substr(dlim + 1, std::string::npos);
+          std::stringstream ss(cidstr);
+          cliid_t cid;
+          ss >> cid;
+          if(comm->publishermap.count(cid) == 0){
+            send_msg(comm->router_sock, cid, (uint8_t *) COMM_HANDLER_SUB_INIT, strlen(COMM_HANDLER_SUB_INIT) + 1, 0);
+            comm->publishermap[cid] = true;
+            pthread_mutex_unlock(&(comm->sync_mtx));
+          }
+        }else{
+          send_msg(comm->taskq, IDE2I(cid), data.get(), len, 0);
+        }
+      }
+
+      if(pollitems[8].revents){
+        boost::shared_array<uint8_t> data;
+        int len;
+
+        len = recv_msg(comm->pubstart_pull, data);
+        if(len < 0){
+          LOG(DBG, stderr, "recv from pubstart failed");
+          comm->errcode = 1;
+          return NULL;
+        }
+
+        try{
+          comm->pub_sock.bind((char *) data.get()) ;
+        }catch(zmq::error_t &e){
+          comm->errcode = 1;
+          return NULL;
+        }
+        pthread_mutex_unlock(&(comm->sync_mtx));
       }
 
       if(pollitems[2].revents){

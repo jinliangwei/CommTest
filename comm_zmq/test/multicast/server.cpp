@@ -41,12 +41,12 @@ int main(int argc, char *argv[]){
   }
   
   config_param_t config(id, true, ip, port); 
-  std::vector<multicast_group_t> mc_tocreate(1);
+  /*std::vector<multicast_group_t> mc_tocreate(1);
   mc_tocreate[0].ip = ip;
   mc_tocreate[0].multicast_addr = mcip;
   mc_tocreate[0].multicast_port = mcport;
   config.mc_tocreate = mc_tocreate;
-  
+  */
   comm_handler *comm;
   try{
     comm = new comm_handler(config);
@@ -89,7 +89,7 @@ int main(int argc, char *argv[]){
   LOG(NOR, stdout, "UNICAST SEND/RECV WORKS!!\n");
   LOG(NOR, stdout, "START TESTING MULTICAST!!\n");
 
-  suc = comm->mc_send(0, (uint8_t *) "hello", 6);
+  //suc = comm->mc_send(0, (uint8_t *) "hello", 6);
   assert(suc == 6);
   LOG(NOR, stdout, "MULTICAST ENDS!!\n");
 

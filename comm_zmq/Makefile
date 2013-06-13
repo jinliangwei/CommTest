@@ -14,7 +14,7 @@ chain: chain-server chain-client chain-serclient
 benchmark:benserver benclient
 multithread: muserver mclient
 async: aserver aclient
-multicast: mcserver mcclient
+pubsub: pubserver subclient
 
 server: $(CPPSRC) $(HPPSRC) test/basic/server.cpp
 	mkdir -p bin
@@ -66,13 +66,13 @@ aclient: $(CPPSRC) $(HPPSRC) test/async/client.cpp
 	mkdir -p bin
 	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/async/client.cpp $(LIBS) -o bin/aclient
 	
-mcserver: $(CPPSRC) $(HPPSRC) test/multicast/server.cpp
+pubserver: $(CPPSRC) $(HPPSRC) test/pubsub/server.cpp
 	mkdir -p bin
-	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multicast/server.cpp $(LIBS) -o bin/mcserver
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/pubsub/server.cpp $(LIBS) -o bin/pubserver
 
-mcclient: $(CPPSRC) $(HPPSRC) test/multicast/client.cpp
+subclient: $(CPPSRC) $(HPPSRC) test/pubsub/client.cpp
 	mkdir -p bin
-	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/multicast/client.cpp $(LIBS) -o bin/mcclient
+	$(CPP) $(INCFLAGS) $(CPPFLAGS) $(CPPSRC) test/pubsub/client.cpp $(LIBS) -o bin/subclient
 
 clean:
 	rm -rf bin

@@ -61,7 +61,7 @@ int main(int argc, char *argv[]){
   assert(suc > 0);
 
   suc = comm->recv(rid, data);
-  assert(suc > 0 && rid == sid);
+  assert(suc > 0);
 
   printf("Received msg : %d from %d\n", *((cliid_t *) data.get()), sid);
   LOG(NOR, stdout, "MULTICAST MSG RECEIVED!!\n");

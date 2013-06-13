@@ -21,7 +21,11 @@
 #define TASKQ_ENDP "inproc://taskq"
 #define SHUTDOWN_ENDP "inproc://shutdown"
 #define CONN_ENDP "inproc://conn"
-#define MC_SEND_ENDP "inproc://mc_send"
+#define PUB_SEND_ENDP "inproc://pub_send"
+#define SUB_PULL_ENDP "inproc://sub_pull"
+#define PUB_START_ENDP "inproc://pub_start"
+#define SUBER_Q_ENDP "inproc://suber_q"
+
 
 #ifndef COMM_HANDLER_LOGLEVEL
 #define COMM_HANDLER_LOGLEVEL 0
@@ -76,39 +80,34 @@ namespace commtest{
     }
   };
 
-  struct multicast_group_t{
-    std::string ip;
-    std::string multicast_addr;
-    std::string multicast_port;
-  };
-
   struct config_param_t{
     cliid_t id; //must be set; others are optional
     bool accept_conns; //default false
     std::string ip;
     std::string port;
-    std::vector<multicast_group_t> mc_tocreate;
-    std::vector<multicast_group_t> mc_tojoin;
-    int multicast_rate; //uint: bis per second; default 1000
 
     config_param_t():
       id(0),
       accept_conns(false),
       ip("localhost"),
-      port("9000"),
-      multicast_rate(1000){}
+      port("9000"){}
 
     config_param_t(cliid_t _id, bool _accept_conns, std::string _ip, std::string _port):
       id(_id),
       accept_conns(_accept_conns),
       ip(_ip),
-      port(_port),
-      multicast_rate(1000){}
+      port(_port){}
   };
   
   //TODO: add two callbacks 1) connection loss 2) error state
   //TODO: add funciton to clear error state
   
+
+  /*
+   * PGM (Pragmatic General Multicast) is not supported by PDL's cluster, so the PGM multicast code is commented out.
+   * But they should work.
+   * Currently multicast is implemented using 0mq's pub-sub communication pattern.
+   * */
 
   class comm_handler {
   private:
@@ -130,15 +129,25 @@ namespace commtest{
     boost::thread_specific_ptr<zmq::socket_t> taskpull;
     boost::thread_specific_ptr<zmq::socket_t> connpush;
 
-    // to support multicast
-    zmq::socket_t mc_sendpull;
-    boost::thread_specific_ptr<zmq::socket_t> mc_sendpush;
+    zmq::socket_t pub_sendpull;
+    boost::thread_specific_ptr<zmq::socket_t> pub_sendpush;
 
-    boost::shared_array< boost::shared_ptr<zmq::socket_t> > mc_pub;
-    boost::shared_ptr<zmq::socket_t> mc_sub;
+    //used to establish publish socket
+    zmq::socket_t pubstart_pull;
+    boost::thread_specific_ptr<zmq::socket_t> pubstart_push;
 
-    int max_pub;
-    bool recv_mc;
+    //queue to wait for client
+    zmq::socket_t suberq;
+    boost::thread_specific_ptr<zmq::socket_t> suberq_pull;
+
+    //used to establish subscription
+    zmq::socket_t subpull;
+    boost::thread_specific_ptr<zmq::socket_t> subpush;
+
+    //used to synchronize
+
+    zmq::socket_t pub_sock;
+    zmq::socket_t sub_sock;
 
     pthread_mutex_t sync_mtx;
     pthread_t pthr;
@@ -148,13 +157,14 @@ namespace commtest{
     int errcode; // 0 is no error
     pcqueue<cliid_t> clientq;
     boost::unordered_map<cliid_t, bool> clientmap;
+    boost::unordered_map<cliid_t, bool> publishermap;
     bool accept_conns;
     static void *start_handler(void *_comm);
 
     // TODO: we can allow clients to join multicast group after their communication threads start running, we do it this
     // way just for simpilicity
-    int init_multicast(config_param_t &cparam);
-    
+    //int init_multicast(config_param_t &cparam);
+
   public:
     
     comm_handler(config_param_t &cparam):
@@ -165,8 +175,12 @@ namespace commtest{
       shutdown_sock(zmq_ctx, ZMQ_PULL),
       router_sock(zmq_ctx, ZMQ_ROUTER),
       monitor_sock(zmq_ctx, ZMQ_PAIR),
-      mc_sendpull(zmq_ctx, ZMQ_PULL),
-      recv_mc(false),
+      pub_sendpull(zmq_ctx, ZMQ_PULL),
+      pubstart_pull(zmq_ctx, ZMQ_PULL),
+      suberq(zmq_ctx, ZMQ_PUSH),
+      subpull(zmq_ctx, ZMQ_PULL),
+      pub_sock(zmq_ctx, ZMQ_PUB),
+      sub_sock(zmq_ctx, ZMQ_SUB),
       id(IDE2I(cparam.id)),
       ip(cparam.ip),
       port(cparam.port),
@@ -177,13 +191,12 @@ namespace commtest{
         taskq.bind(TASKQ_ENDP);
         conn_sock.bind(CONN_ENDP);
         shutdown_sock.bind(SHUTDOWN_ENDP);
-        mc_sendpull.bind(MC_SEND_ENDP);
+        pub_sendpull.bind(PUB_SEND_ENDP);
+        pubstart_pull.bind(PUB_START_ENDP);
+        suberq.bind(SUBER_Q_ENDP);
+        subpull.bind(SUB_PULL_ENDP);
       }catch(zmq::error_t &e){
         LOG(DBG, stderr, "Failed to bind to inproc socket: %s\n", e.what());
-        throw std::bad_alloc();
-      }
-
-      if(init_multicast(cparam) < 0){
         throw std::bad_alloc();
       }
 
@@ -197,16 +210,19 @@ namespace commtest{
     }
     
     ~comm_handler(){
-      //pthread_mutex_destroy(&msgq_mtx);
-      //pthread_mutex_destroy(&taskq_mtx);
       pthread_mutex_destroy(&sync_mtx);
     }
 
     
     cliid_t get_one_connection();
     int connect_to(std::string destip, std::string destport, cliid_t destid);
-    int mc_send(cliid_t mc_group, uint8_t *data, size_t len);
+    // does not return until get enough subscribers
+    int init_pub(std::string ip, std::string port, cliid_t gid, int num_subs);
+    // pubids should be different from any node ids
+    int subscribe_to(std::string pubip, std::string pubport, std::vector<cliid_t> pubids);
 
+
+    int publish(cliid_t group, uint8_t *data, size_t len);
     // thread-safe send, recv, recv_async
     int send(cliid_t cid, uint8_t *data, size_t len); //non-blocking send
     int recv(cliid_t &cid, boost::shared_array<uint8_t> &data); //blocking recv
